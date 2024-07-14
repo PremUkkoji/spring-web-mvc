@@ -1,0 +1,81 @@
+pipeline {
+    agent any
+
+    parameters {
+        booleanParam(name: 'skip_owasp', defaultValue: false, description: 'To skip the OWASP Dependency Check')
+        booleanParam(name: 'skip_tests', defaultValue: false, description: 'To skip Unit tests')
+        booleanParam(name: 'skip_docker_image_build', defaultValue: false, description: 'To skip docker image build and push')
+    }
+
+    tools {
+        jdk 'JDK-17'
+        maven 'Maven-3.9.6'
+    }
+
+    environment {
+        SCANNER_HOME = tool 'SonarScanner-6.0.0.4432'
+    }
+
+    stages {
+        stage('Git Checkout') {
+            steps {
+                git branch: 'main', changelog: false, poll: false, url: 'https://github.com/PremUkkoji/spring-web-mvc.git'
+            }
+        }
+
+        stage('Compile') {
+            steps {
+                script {
+                    if(params.skip_tests) {
+                        echo "Skipping Tests"
+                        sh "mvn clean compile -DskipTests=true"
+                    } else {
+                        sh "mvn clean compile"
+                    }
+                }
+            }
+        }
+
+        stage('SonarQubeScanner Analysis') {
+            steps {
+                sh ''' $SCANNER_HOME/bin/sonar-scanner -Dsonar.url=http://localhost:9000/ \
+                -Dsonar.login=squ_4feafcac46eedf8fb3cb0cb8612b4a5371b04d27 \
+                -Dsonar.projectName=spring-mvc-hello-world \
+                -Dsonar.java.binaries=. \
+                -Dsonar.projectKey=spring-mvc-hello-world '''
+            }
+        }
+
+        stage('OWASP Dependency Check') {
+            when { expression { params.skip_owasp != true } }
+            steps {
+                dependencyCheck additionalArguments: '--nvdApiKey "93224fdb-70a4-41a8-b7cd-f161b6d9fb4e" --scan ./', odcInstallation: 'DependencyCheck-9.2.0'
+                dependencyCheckPublisher pattern: '**/dependency-check-report.xml'
+            }
+        }
+
+        stage('Build') {
+            steps {
+                sh "mvn clean install"
+            }
+        }
+
+        stage("Docker image Build & Push") {
+            when { expression { params.skip_docker_image_build != true } }
+            steps {
+                script {
+                    withDockerRegistry(credentialsId: '7542a0b5-fe56-4384-b363-127c7d83b880', toolName: 'Docker') {
+                        sh "/usr/local/bin/docker build -t premukkoji/spring-mvc-hello-world:latest -f Dockerfile ."
+                        sh "/usr/local/bin/docker push premukkoji/spring-mvc-hello-world:latest"
+                    }
+                }
+            }
+        }
+
+        stage("Trigger CD Pipeline") {
+            steps {
+                build job: "Spring MVC Hello World CD Pipeline", wait: true
+            }
+        }
+    }
+}

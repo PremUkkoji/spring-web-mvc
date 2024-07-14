@@ -1,0 +1,15 @@
+pipeline {
+    agent any
+
+    stages {
+        stage('Docker deploy Container') {
+            steps {
+                script {
+                    withDockerRegistry(credentialsId: '7542a0b5-fe56-4384-b363-127c7d83b880', toolName: 'Docker') {
+                        sh "/usr/local/bin/docker run -d --name spring-mvc-hello-world -p 8081:8081 premukkoji/sping-mvc-hello-world:latest"
+                    }
+                }
+            }
+        }
+    }
+}
